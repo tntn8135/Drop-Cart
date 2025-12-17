@@ -43,6 +43,21 @@ let receiptSpeed = 0.1;
 // Amazon / FakeStore 상품
 let amazonItem = null;
 
+// 결과 화면 단계
+let resultStage = 0; 
+// 0 = 기본 영수증 + 화살표
+// 1 = 확장 영수증 + 다른 상품 + Restart
+
+let extraAmazonItems = [];
+
+// 버튼
+let arrowBtn = { x: 0, y: 0, r: 26 };
+let restartBtn = { x: 0, y: 0, w: 220, h: 70 };
+
+// 확장 영수증 목표 위치
+let expandedReceiptY;
+
+
 // helper
 function getMostFrequentLetter(counts) {
   let maxCount = Math.max(...Object.values(counts));
@@ -268,16 +283,8 @@ function createItem(letter) {
   items.push(body);
 }
 
-// draw
 function draw() {
   background(255,161,160);
-
-  // // 좌우 반전 카메라
-  // push();
-  // translate(320, 60);
-  // scale(-1, 1);
-  // image(video, 0, 0, 320, 240);
-  // pop();
 
   if (!isGameOver) Engine.update(engine);
 
@@ -314,6 +321,18 @@ function draw() {
       const randomLetter = lettersWithMax[Math.floor(Math.random() * lettersWithMax.length)];
 
       getAmazonItem(randomLetter).then(item => amazonItem = item);
+      extraAmazonItems = [];
+
+      ["A","D","J","O"].forEach(letter => {
+        if (letter !== randomLetter && counts[letter] > 0) {
+          getAmazonItem(letter).then(item => {
+            extraAmazonItems.push({
+              letter,
+              title: item.title
+            });
+          });
+        }
+      });
     }
   }
 
@@ -323,6 +342,10 @@ function draw() {
 
   // 게임오버 화면
   if(isGameOver){
+
+    let isArrowHover = false;
+    let isRestartHover = false;
+
     receiptY += (targetReceiptY - receiptY) * receiptSpeed;
     imageMode(CENTER);
     image(imgReceipt, width/2, receiptY);
@@ -349,18 +372,17 @@ function draw() {
     fill(243,137,131);
     text(`TOTAL: ${total}`, width/2, baseY + lineGap);
 
-    // 상품명 가운데 정렬 + 줄바꿈
-    if(amazonItem){
-      let amazonBaseY = baseY + lineGap + 130;
-      let receiptWidthInner = imgReceipt.width * 0.8;
-      textSize(32);
-      fill(243,137,131);
-      textAlign(CENTER, TOP);
+    // -------------------------------
+    // 줄바꿈 처리 함수
+    // -------------------------------
+    function drawWrappedText(txt, x, y, maxWidth, lineHeight) {
+      let paragraphs = txt.split('\n');
+      let offsetY = 0;
 
-      function drawWrappedText(txt, x, y, maxWidth, lineHeight) {
-        let words = txt.split(' ');
+      for (let p of paragraphs) {
+        let words = p.split(' ');
         let line = '';
-        let offsetY = 0;
+
         for (let i = 0; i < words.length; i++) {
           let testLine = line + words[i] + ' ';
           if (textWidth(testLine) > maxWidth && line !== '') {
@@ -371,47 +393,130 @@ function draw() {
             line = testLine;
           }
         }
-        text(line, x, y + offsetY);
+
+        if (line !== '') {
+          text(line, x, y + offsetY);
+          offsetY += lineHeight;
+        }
+
+        offsetY += lineHeight * 0.6;
+      }
+    }
+
+    // -------------------------------
+    // 상품명 + 가격 + 평점 + 설명
+    // -------------------------------
+    if(amazonItem){
+      let receiptWidthInner = imgReceipt.width * 0.8;
+
+      // 작품 설명 먼저 출력 (상품명 위)
+      textSize(18);
+      fill(160);
+      textAlign(CENTER, TOP);
+      let descriptionText =
+      "우리는 물건을 계속 카트에 담고있지만\n실제로 어떤 상품을 담고있는지는 본인조차 모릅니다.";
+      let descriptionY = baseY + lineGap + 92;
+      drawWrappedText(descriptionText, width / 2, descriptionY, receiptWidthInner, 15);
+
+      let descriptionText2 =
+      "카트에 가장 많이 들어있던 알파벳을 통해\n당신이 담고있던 아이템의 이름을 알려드립니다.";
+      let descriptionY2 = descriptionY+58
+      drawWrappedText(descriptionText2, width / 2, descriptionY2, receiptWidthInner, 15);
+
+      // 상품명 출력 (설명 아래)
+      let amazonBaseY = descriptionY + 150;
+      textSize(32);
+      fill(243,137,131);
+      drawWrappedText(amazonItem.title, width/2, amazonBaseY, receiptWidthInner, 38);
+
+      // 가격/평점
+      let lineGap2 = 170;
+      textSize(28);
+      drawWrappedText(`Price: ${amazonItem.price}`, width/2, amazonBaseY + lineGap2, receiptWidthInner, 32);
+      drawWrappedText(`Rating: ${amazonItem.stars}`, width/2, amazonBaseY + lineGap2 + 50, receiptWidthInner, 32);
+    }
+
+    // 결과 화면 버튼 & 확장 연출
+    if (resultStage === 0) targetReceiptY = height - imgReceipt.height * 0.15;
+    else targetReceiptY = height - imgReceipt.height * 0.45;
+
+    // 화살표 버튼
+    if (resultStage === 0) {
+      arrowBtn.x = width / 2;
+      arrowBtn.y = height - 90;
+      isArrowHover = dist(mouseX, mouseY, arrowBtn.x, arrowBtn.y) < arrowBtn.r;
+      cursor(isArrowHover ? HAND : ARROW);
+
+      noStroke();
+      fill(isArrowHover ? 245 : 255);
+      circle(arrowBtn.x, arrowBtn.y, arrowBtn.r * 2);
+
+      fill(243,137,131);
+      triangle(
+        arrowBtn.x - 8, arrowBtn.y - 6,
+        arrowBtn.x + 8, arrowBtn.y - 6,
+        arrowBtn.x, arrowBtn.y + 10
+      );
+    }
+
+    // 확장 화면
+    if (resultStage === 1) {
+      textFont(gameFont);
+      textAlign(CENTER, TOP);
+
+      let infoY = receiptY + imgReceipt.height * 0.18;
+
+      // 다른 상품들
+      fill(243,137,131);
+      textSize(24);
+      text("Other Picks", width / 2, infoY-50);
+
+      textSize(22);
+      infoY += 50; // 기존보다 간격 증가
+      for (let item of extraAmazonItems) {
+        drawWrappedText(`${item.letter} : ${item.title}`, width / 2, infoY, imgReceipt.width*0.75, 28);
+        infoY += 60; // 줄 간격 넓힘
       }
 
-      drawWrappedText(amazonItem.title, width/2, amazonBaseY + 40, receiptWidthInner, 38);
+      // Restart 버튼
+      restartBtn.x = width - 160;
+      restartBtn.y = height - 80;
 
-      let lineGap2 = 230;
-      textSize(28);
-      drawWrappedText(`Price: ${amazonItem.price}`, width/2, amazonBaseY + 40 + lineGap2, receiptWidthInner, 32);
-      drawWrappedText(`Rating: ${amazonItem.stars}`, width/2, amazonBaseY + 40 + lineGap2 + 50, receiptWidthInner, 32);
+      noStroke();
+      fill(255,253,239);
+      rectMode(CENTER);
+      rect(restartBtn.x, restartBtn.y, restartBtn.w, restartBtn.h, 30);
+
+      // 버튼 텍스트 완전히 가운데 정렬
+      fill(243,137,131);
+      textSize(32);
+      textAlign(CENTER, CENTER);
+      text("Restart", restartBtn.x, restartBtn.y-5);
     }
   }
 
-// 게임 중 안내 텍스트
-if (gameState === "playing" && !isGameOver) {
-  textFont(gameFont);
-  textAlign(CENTER, TOP);
-  noStroke();
+  // 게임 중 안내 텍스트
+  if (gameState === "playing" && !isGameOver) {
+    textFont(gameFont);
+    textAlign(CENTER, TOP);
+    noStroke();
 
-  // 박스
-  fill(255, 240);
-  rectMode(CENTER);
-  rect(width / 2, 70, 760, 70, 20);
+    fill(255, 240);
+    rectMode(CENTER);
+    rect(width / 2, 70, 760, 70, 20);
 
-  // 텍스트
-  fill(243, 137, 131);
-  textSize(36);
-  text("A, D, J, O 포즈를 취해보세요", width / 2, 48);
+    fill(243, 137, 131);
+    textSize(36);
+    text("A, D, J, O 포즈를 취해보세요", width / 2, 48);
 
-  textSize(22);
-
-  // 테두리 색상 & 두께
-  stroke(255);        // 흰색 테두리
-  strokeWeight(4);    // 테두리 두께
-
-  fill(120);          // 텍스트 색
-  textAlign(CENTER, CENTER);
-  text(`현재 포즈: ${currentLabel}`, width / 2, 120);
-  noStroke();
+    textSize(22);
+    stroke(255); strokeWeight(4);
+    fill(120);
+    textAlign(CENTER, CENTER);
+    text(`현재 포즈: ${currentLabel}`, width / 2, 120);
+    noStroke();
   }
 
-  // // 게임 중 Pose 표시, 확인용
   // if(!isGameOver && gameState==='playing'){
   //   fill(0);
   //   textFont(gameFont);
@@ -419,4 +524,31 @@ if (gameState === "playing" && !isGameOver) {
   //   textAlign(LEFT);
   //   text("POSE: " + currentLabel, 20, 40);
   // }
+}
+
+
+function mousePressed() {
+
+    console.log("mousePressed");
+    
+  if (!isGameOver) return;
+
+  // 화살표 클릭
+  if (resultStage === 0) {
+    if (dist(mouseX, mouseY, arrowBtn.x, arrowBtn.y) < arrowBtn.r) {
+      resultStage = 1;
+    }
+  }
+
+  // Restart 버튼
+  else if (resultStage === 1) {
+    if (
+      mouseX > restartBtn.x - restartBtn.w/2 &&
+      mouseX < restartBtn.x + restartBtn.w/2 &&
+      mouseY > restartBtn.y - restartBtn.h/2 &&
+      mouseY < restartBtn.y + restartBtn.h/2
+    ) {
+      window.location.reload();
+    }
+  }
 }
